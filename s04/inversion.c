@@ -98,16 +98,18 @@ int invert_block(pmatrix a, int blocks, int resolution) {
   } else {
     invert(akk);
   }
-  
-  #pragma omp parallel 
+
+#pragma omp parallel
   {
-    #pragma omp single 
+#pragma omp single
     {
-      #pragma omp task
+#pragma omp task
       {
         for (j = k + 1; j < blocks; j++) {
-          akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize, j * blocksize);
-          bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize, j * blocksize);
+          akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize,
+                               j * blocksize);
+          bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize,
+                               j * blocksize);
           addmul(1, false, akk, false, akj, bkj);
 
           del_sub_matrix(akj);
@@ -115,11 +117,13 @@ int invert_block(pmatrix a, int blocks, int resolution) {
         }
       }
 
-      #pragma omp task
+#pragma omp task
       {
         for (i = k + 1; i < blocks; i++) {
-          aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
-          bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize, k * blocksize);
+          aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+                               k * blocksize);
+          bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                               k * blocksize);
           addmul(1, false, aik, false, akk, bik);
 
           del_sub_matrix(aik);
@@ -129,88 +133,109 @@ int invert_block(pmatrix a, int blocks, int resolution) {
     }
   }
 
-  for (k = 1; k < blocks; k++) {
-    akk = new_sub_matrix(a, blocksize, k * blocksize, blocksize, k * blocksize);
-    // (iv) Update von A22 zu S := A22−A21A−1 11 A12 = A22−B21A12.
-    i = 1;
-    j = 1;
-    bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                         j * blocksize);
-    addmul(-1, false, bik, false, akj, akk);
+#pragma omp parallel
+  {
+#pragma omp single
+    {
+      for (k = 1; k < blocks; k++) {
+#pragma omp task depend(out : akk)
+        {
+          akk = new_sub_matrix(a, blocksize, k * blocksize, blocksize,
+                               k * blocksize);
+          // (iv) Update von A22 zu S := A22−A21A−1 11 A12 = A22−B21A12.
+          i = 1;
+          j = 1;
+          bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                               (k - 1) * blocksize);
+          akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+                               j * blocksize);
+          addmul(-1, false, bik, false, akj, akk);
 
-    del_sub_matrix(akj);
-    del_sub_matrix(bik);
+          del_sub_matrix(akj);
+          del_sub_matrix(bik);
 
-    if (blocksize > resolution) {
-      invert_block(akk, blocks, resolution);
-    } else {
-      invert(akk);
-    }
+          if (blocksize > resolution) {
+            invert_block(akk, blocks, resolution);
+          } else {
+            invert(akk);
+          }
+        }
+#pragma omp task depend(in : akk) depend(out : i)
+        {
+          for (i = k; i < blocks; i++) {
+            aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+                                 (k - 1) * blocksize);
+            bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                                 (k - 1) * blocksize);
+            clear_matrix(aik);
+            addmul(-1, false, akk, false, bik, aik);
 
-    // (vi) Update von A21 zu−S−1B21.
-    for (i = k; i < blocks; i++) {
-      aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
-                           (k - 1) * blocksize);
-      bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                           (k - 1) * blocksize);
-      clear_matrix(aik);
-      addmul(-1, false, akk, false, bik, aik);
+            del_sub_matrix(aik);
+            del_sub_matrix(bik);
+          }
+        }
+#pragma omp task depend(in : akk) depend(out : j)
+        {
+          for (j = k; j < blocks; j++) {
+            akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+                                 j * blocksize);
+            bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+                                 j * blocksize);
+            clear_matrix(akj);
+            addmul(-1, false, bkj, false, akk, akj);
 
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
-    }
+            del_sub_matrix(akj);
+            del_sub_matrix(bkj);
+          }
+        }
 
-    // (vii) Update von A12 zu −B_12S^−1
-    for (j = k; j < blocks; j++) {
-      akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                           j * blocksize);
-      bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                           j * blocksize);
-      clear_matrix(akj);
-      addmul(-1, false, bkj, false, akk, akj);
+        // (vii) Update von A12 zu −B_12S^−1
+#pragma omp task depend(in : i) depend(in : j) depend(out : akk)
+        {
+          j = 1;
+          i = 1;
+          bkk = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+                               (k - 1) * blocksize);
+          bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+                               j * blocksize);
+          bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                               (k - 1) * blocksize);
 
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
-    }
+          addmul(1, false, akk, false, bik, bkk);
 
-    j = 1;
-    i = 1;
-    bkk = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                         j * blocksize);
-    bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                         (k - 1) * blocksize);
+          akk = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+                               (k - 1) * blocksize);
+          addmul(1, false, bkj, false, bkk, akk);
+        }
+#pragma omp task depend(in : akk)
+        {
+          //(ii) B12 := (A_11)^-1 A12
+          for (j = k + 1; j < blocks; j++) {
+            akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize,
+                                 j * blocksize);
+            bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize,
+                                 j * blocksize);
+            addmul(1, false, akk, false, akj, bkj);
 
-    addmul(1, false, akk, false, bik, bkk);
+            del_sub_matrix(akj);
+            del_sub_matrix(bkj);
+          }
+        }
+#pragma omp task depend(in : akk)
+        {
+          //(iii) B21 := A21 (A_11)^-1
+          for (i = k + 1; i < blocks; i++) {
+            aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+                                 k * blocksize);
+            bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                                 k * blocksize);
+            addmul(1, false, aik, false, akk, bik);
 
-    akk = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    addmul(1, false, bkj, false, bkk, akk);
-
-    //(ii) B12 := (A_11)^-1 A12
-    for (j = k + 1; j < blocks; j++) {
-      akj =
-          new_sub_matrix(a, blocksize, k * blocksize, blocksize, j * blocksize);
-      bkj =
-          new_sub_matrix(b, blocksize, k * blocksize, blocksize, j * blocksize);
-      addmul(1, false, akk, false, akj, bkj);
-
-      del_sub_matrix(akj);
-      del_sub_matrix(bkj);
-    }
-    //(iii) B21 := A21 (A_11)^-1
-    for (i = k + 1; i < blocks; i++) {
-      aik =
-          new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
-      bik =
-          new_sub_matrix(b, blocksize, i * blocksize, blocksize, k * blocksize);
-      addmul(1, false, aik, false, akk, bik);
-
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
+            del_sub_matrix(aik);
+            del_sub_matrix(bik);
+          }
+        }
+      }
     }
   }
 
