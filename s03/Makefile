@@ -1,0 +1,39 @@
+CC = gcc
+RM = rm -f
+#RM = del
+
+CFLAGS = -Wall \
+	 -O3 -g -funroll-loops -march=native -mtune=native \
+         -std=c99
+LIBS   = -lm
+#LIBS   = -lm -lwinmm
+         
+CFLAGS += -DUSE_OPENMP -fopenmp
+
+#CFLAGS += -DUSE_BLAS
+#LIBS   += -lblas -lgfortran -llapack
+
+all: p3_block_ldlt
+
+basic.o: basic.c basic.h
+	$(CC) -c $(CFLAGS) $< -o $@ 
+	
+miniblas.o: miniblas.c miniblas.h basic.h
+	$(CC) -c $(CFLAGS) $< -o $@ 
+	
+matrix.o: matrix.c matrix.h miniblas.h basic.h
+	$(CC) -c $(CFLAGS) $< -o $@ 
+
+factorizations.o: factorizations.c matrix.h miniblas.h basic.h
+	$(CC) -c $(CFLAGS) $< -o $@ 
+	
+p3_block_ldlt: p3_block_ldlt.o basic.o miniblas.o matrix.o factorizations.o
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+
+p3_block_ldlt.o: p3_block_ldlt.c matrix.h factorizations.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	$(RM) *.o
+	$(RM) p3_block_ldlt
+
