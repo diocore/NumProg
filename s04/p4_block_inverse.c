@@ -36,7 +36,7 @@ int main(void) {
 
   printf("Testing matrix inversion\n");
 
-  n = 512;         // Problem size
+  n = 8;         // Problem size
   blocks = 2;      // Number of subdivisions of rows and columns in each
                    // level of the recursion
   resolution = 4;  // Stop the recursion if current blocks are smaller

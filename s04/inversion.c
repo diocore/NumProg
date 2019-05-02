@@ -83,136 +83,196 @@ void invert(pmatrix a) {
 }
 
 int invert_block(pmatrix a, int blocks, int resolution) {
-  pmatrix b, bkk, akk, aij, aik, akj, bik, bki, bkj, bjk;
+  pmatrix b, bkk, akk, aij, aji, aik, aki, akj, bik, bki, bkj, bjk;
   int i, j, k, n, minblocksize, blocksize;
-  blocksize = a->cols / blocks;
   n = a->rows;
   assert(n == a->cols);
   b = new_zero_matrix(n, n);
   blocksize = n / blocks;
-  minblocksize = 2;
+  minblocksize = 999;
 
-  akk = new_sub_matrix(a, blocksize, 0, blocksize, 0);
-  if (blocksize > resolution) {
-    invert_block(akk, blocks, resolution);
-  } else {
-    invert(akk);
-  }
-  
-  #pragma omp parallel 
-  {
-    #pragma omp single 
-    {
-      #pragma omp task
-      {
-        for (j = k + 1; j < blocks; j++) {
-          akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize, j * blocksize);
-          bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize, j * blocksize);
-          addmul(1, false, akk, false, akj, bkj);
-
-          del_sub_matrix(akj);
-          del_sub_matrix(bkj);
-        }
-      }
-
-      #pragma omp task
-      {
-        for (i = k + 1; i < blocks; i++) {
-          aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
-          bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize, k * blocksize);
-          addmul(1, false, aik, false, akk, bik);
-
-          del_sub_matrix(aik);
-          del_sub_matrix(bik);
-        }
-      }
-    }
-  }
-
-  for (k = 1; k < blocks; k++) {
+  for (k = 0; k < blocks; k++) {
     akk = new_sub_matrix(a, blocksize, k * blocksize, blocksize, k * blocksize);
-    // (iv) Update von A22 zu S := A22−A21A−1 11 A12 = A22−B21A12.
-    i = 1;
-    j = 1;
-    bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                         j * blocksize);
-    addmul(-1, false, bik, false, akj, akk);
-
-    del_sub_matrix(akj);
-    del_sub_matrix(bik);
-
-    if (blocksize > resolution) {
-      invert_block(akk, blocks, resolution);
+    if (blocksize >= resolution) {
+      int tmp = invert_block(akk, blocks, resolution);
+      if(tmp < minblocksize) {
+        minblocksize = tmp;
+      }
     } else {
+      if(blocksize < minblocksize) {
+        minblocksize = blocksize;
+      }
       invert(akk);
     }
 
-    // (vi) Update von A21 zu−S−1B21.
-    for (i = k; i < blocks; i++) {
-      aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
-                           (k - 1) * blocksize);
-      bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                           (k - 1) * blocksize);
-      clear_matrix(aik);
-      addmul(-1, false, akk, false, bik, aik);
-
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
-    }
-
-    // (vii) Update von A12 zu −B_12S^−1
-    for (j = k; j < blocks; j++) {
-      akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                           j * blocksize);
-      bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                           j * blocksize);
-      clear_matrix(akj);
-      addmul(-1, false, bkj, false, akk, akj);
-
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
-    }
-
-    j = 1;
-    i = 1;
-    bkk = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
-                         j * blocksize);
-    bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
-                         (k - 1) * blocksize);
-
-    addmul(1, false, akk, false, bik, bkk);
-
-    akk = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
-                         (k - 1) * blocksize);
-    addmul(1, false, bkj, false, bkk, akk);
-
-    //(ii) B12 := (A_11)^-1 A12
-    for (j = k + 1; j < blocks; j++) {
-      akj =
-          new_sub_matrix(a, blocksize, k * blocksize, blocksize, j * blocksize);
-      bkj =
-          new_sub_matrix(b, blocksize, k * blocksize, blocksize, j * blocksize);
-      addmul(1, false, akk, false, akj, bkj);
-
-      del_sub_matrix(akj);
-      del_sub_matrix(bkj);
-    }
-    //(iii) B21 := A21 (A_11)^-1
     for (i = k + 1; i < blocks; i++) {
       aik =
           new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
       bik =
           new_sub_matrix(b, blocksize, i * blocksize, blocksize, k * blocksize);
       addmul(1, false, aik, false, akk, bik);
-
-      del_sub_matrix(aik);
-      del_sub_matrix(bik);
+    }
+    for (j = k + 1; j < blocks; j++) {
+      akj =
+          new_sub_matrix(a, blocksize, k * blocksize, blocksize, j * blocksize);
+      bkj =
+          new_sub_matrix(b, blocksize, k * blocksize, blocksize, j * blocksize);
+      addmul(1, false, akk, false, akj, bkj);
+    }
+    for (i = k + 1; i < blocks; i++) {
+      for (j = k + 1; j < blocks; j++) {
+        aij = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+                             j * blocksize);
+        akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize,
+                             j * blocksize);
+        bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+                             k * blocksize);
+        addmul(-1, false, bik, false, akj, aij);
+      }
     }
   }
+
+  for (k = blocks; k-- > 0;) {
+    for (i = k + 1; i < blocks; i++) {
+      aik =
+          new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
+      clear_matrix(aik);
+      for (j = k + 1; j < blocks; j++) {
+        bjk = new_sub_matrix(b, blocksize, j * blocksize, blocksize,
+                             k * blocksize);
+        aij = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+                             j * blocksize);
+        addmul(-1, false, aij, false, bjk, aik);
+      }
+      aki =
+          new_sub_matrix(a, blocksize, k * blocksize, blocksize, i * blocksize);
+      clear_matrix(aki);
+      for (j = k + 1; j < blocks; j++) {
+        bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize,
+                             j * blocksize);
+        aji = new_sub_matrix(a, blocksize, j * blocksize, blocksize,
+                             i * blocksize);
+        addmul(-1, false, bkj, false, aji, aki);
+      }
+    }
+    for (i = k + 1; i < blocks; i++) {
+      akk =
+          new_sub_matrix(a, blocksize, k * blocksize, blocksize, k * blocksize);
+      bki =
+          new_sub_matrix(b, blocksize, k * blocksize, blocksize, i * blocksize);
+      aik =
+          new_sub_matrix(a, blocksize, i * blocksize, blocksize, k * blocksize);
+      addmul(-1, false, bki, false, aik, akk);
+    }
+  }
+
+  // for (j = k + 1; j < blocks; j++) {
+  //   akj = new_sub_matrix(a, blocksize, k * blocksize, blocksize, j *
+  //   blocksize); bkj = new_sub_matrix(b, blocksize, k * blocksize, blocksize,
+  //   j * blocksize); addmul(1, false, akk, false, akj, bkj);
+
+  //   del_sub_matrix(akj);
+  //   del_sub_matrix(bkj);
+  // }
+
+  // for (i = k + 1; i < blocks; i++) {
+  //   aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize, k *
+  //   blocksize); bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+  //   k * blocksize); addmul(1, false, aik, false, akk, bik);
+
+  //   del_sub_matrix(aik);
+  //   del_sub_matrix(bik);
+  // }
+
+  // for (k = 1; k < blocks; k++) {
+  //   akk = new_sub_matrix(a, blocksize, k * blocksize, blocksize, k *
+  //   blocksize);
+  //   // (iv) Update von A22 zu S := A22−A21A−1 11 A12 = A22−B21A12.
+  //   i = 1;
+  //   j = 1;
+  //   bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+  //                        (k - 1) * blocksize);
+  //   akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+  //                        j * blocksize);
+  //   addmul(-1, false, bik, false, akj, akk);
+
+  //   del_sub_matrix(akj);
+  //   del_sub_matrix(bik);
+
+  //   if (blocksize > resolution) {
+  //     invert_block(akk, blocks, resolution);
+  //   } else {
+  //     invert(akk);
+  //   }
+
+  //   // (vi) Update von A21 zu−S−1B21.
+  //   for (i = k; i < blocks; i++) {
+  //     aik = new_sub_matrix(a, blocksize, i * blocksize, blocksize,
+  //                          (k - 1) * blocksize);
+  //     bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+  //                          (k - 1) * blocksize);
+  //     clear_matrix(aik);
+  //     addmul(-1, false, akk, false, bik, aik);
+
+  //     del_sub_matrix(aik);
+  //     del_sub_matrix(bik);
+  //   }
+
+  //   // (vii) Update von A12 zu −B_12S^−1
+  //   for (j = k; j < blocks; j++) {
+  //     akj = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+  //                          j * blocksize);
+  //     bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+  //                          j * blocksize);
+  //     clear_matrix(akj);
+  //     addmul(-1, false, bkj, false, akk, akj);
+
+  //     del_sub_matrix(aik);
+  //     del_sub_matrix(bik);
+  //   }
+
+  //   j = 1;
+  //   i = 1;
+  //   bkk = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+  //                        (k - 1) * blocksize);
+  //   bkj = new_sub_matrix(b, blocksize, (k - 1) * blocksize, blocksize,
+  //                        j * blocksize);
+  //   bik = new_sub_matrix(b, blocksize, i * blocksize, blocksize,
+  //                        (k - 1) * blocksize);
+
+  //   addmul(1, false, akk, false, bik, bkk);
+
+  //   akk = new_sub_matrix(a, blocksize, (k - 1) * blocksize, blocksize,
+  //                        (k - 1) * blocksize);
+  //   addmul(1, false, bkj, false, bkk, akk);
+
+  //   //(ii) B12 := (A_11)^-1 A12
+  //   for (j = k + 1; j < blocks; j++) {
+  //     akj =
+  //         new_sub_matrix(a, blocksize, k * blocksize, blocksize, j *
+  //         blocksize);
+  //     bkj =
+  //         new_sub_matrix(b, blocksize, k * blocksize, blocksize, j *
+  //         blocksize);
+  //     addmul(1, false, akk, false, akj, bkj);
+
+  //     del_sub_matrix(akj);
+  //     del_sub_matrix(bkj);
+  //   }
+  //   //(iii) B21 := A21 (A_11)^-1
+  //   for (i = k + 1; i < blocks; i++) {
+  //     aik =
+  //         new_sub_matrix(a, blocksize, i * blocksize, blocksize, k *
+  //         blocksize);
+  //     bik =
+  //         new_sub_matrix(b, blocksize, i * blocksize, blocksize, k *
+  //         blocksize);
+  //     addmul(1, false, aik, false, akk, bik);
+
+  //     del_sub_matrix(aik);
+  //     del_sub_matrix(bik);
+  //   }
+  // }
 
   // printf("==========================================\n");
   // print_matrix(a);
